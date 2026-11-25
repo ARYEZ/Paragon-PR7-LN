@@ -69,8 +69,13 @@ def run(p: dict) -> bool:
         flags = 0
         if sys.platform == "win32" and p.get("console"):
             flags = subprocess.CREATE_NEW_CONSOLE
+        args = p["args"]
+        if sys.platform == "win32" and p.get("console"):
+            # the command goes to cmd.exe as typed: a list would be quoted by Python's rules (\" inside), which cmd.exe
+            # doesn't read, so `dir "C:\Program Files"` would fail
+            args = f"{args[0]} {args[1]} {args[2]}"
         try:
-            subprocess.Popen(p["args"], close_fds=True, creationflags=flags)
+            subprocess.Popen(args, close_fds=True, creationflags=flags)
             return True
         except OSError:
             return False

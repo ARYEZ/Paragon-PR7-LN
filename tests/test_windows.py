@@ -48,3 +48,19 @@ def test_a_plan_really_runs(tmp_path):
             break
         time.sleep(0.05)
     assert out.read_text().strip() == "ran"
+
+
+def test_a_typed_command_keeps_its_quotes(tmp_path):
+    """A shell command with quotes (a path with a space) reaches cmd.exe as typed."""
+    import time
+    from pr7ln import actions
+    folder = tmp_path / "with space"
+    folder.mkdir()
+    out = folder / "typed.txt"
+    p = actions.plan({"type": "shell", "command": f'echo typed> "{out}" & exit'})
+    assert actions.run(p)
+    for _ in range(100):
+        if out.exists() and out.read_text().strip():
+            break
+        time.sleep(0.05)
+    assert out.read_text().strip() == "typed"
