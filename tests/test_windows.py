@@ -40,7 +40,9 @@ def test_a_plan_really_runs(tmp_path):
     import time
     from pr7ln import actions
     out = tmp_path / "ran.txt"
-    assert actions.run({"kind": "start", "args": ["cmd.exe", "/c", f"echo ran> \"{out}\""]})
+    bat = tmp_path / "write.bat"                 # writes next to itself: no quotes on the command line (subprocess
+    bat.write_text('@echo ran> "%~dp0ran.txt"\r\n')    # escapes them as \" there, which cmd.exe can't read)
+    assert actions.run({"kind": "start", "args": ["cmd.exe", "/c", str(bat)]})
     for _ in range(100):
         if out.exists() and out.read_text().strip():
             break
