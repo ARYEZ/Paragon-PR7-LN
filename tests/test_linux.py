@@ -91,6 +91,7 @@ def test_system_items_use_linux_words(linux):
     assert "Plasma" in plugins.System().query("sign out", None)[0].subtitle
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="Linux's recently-used.xbel (file:// addresses of Linux paths)")
 def test_recent_files_from_recently_used_xbel(tmp_path):
     old, new = tmp_path / "old report.odt", tmp_path / "new report.odt"
     old.write_text("o"); new.write_text("n")
