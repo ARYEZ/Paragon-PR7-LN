@@ -109,6 +109,8 @@ def selftest(out: str) -> int:
         doc = os.path.join(data, "credits.txt")
         open(doc, "w").write("x")
         open(os.path.join(recent, "credits.txt.lnk"), "wb").write(lnk.make_lnk(doc))
+        from . import actions
+        linux, actions.LINUX = actions.LINUX, False        # the made-up PC is a Windows one: Windows' plans
         engine = make_engine(History(os.path.join(data, "history.json")),
                              [Programs([start]), Files(recent), Calculator(), Web(), Shell(), System()])
         tray = TrayApp(engine, show_tray=False, find=lambda app_: None)
@@ -123,7 +125,8 @@ def selftest(out: str) -> int:
             found[q] = [r.title for r in la.items]
             la.grab()
             la.activate()
-        real = Programs()
+        actions.LINUX = linux
+        real = Programs()                                   # this system's own programs (Linux: its menu entries)
         real.load()
         result = {"version": __version__, "found": found, "plans": plans, "copied": app.clipboard().text(),
                   "history": json.load(open(os.path.join(data, "history.json"))),

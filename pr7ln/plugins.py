@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import os
 import socket
 import sqlite3
@@ -21,7 +22,7 @@ import time
 from dataclasses import dataclass, field
 from urllib.parse import quote
 
-from . import calc, family, lnk
+from . import actions, calc, desktop, family, lnk
 from .match import score
 
 ENGINES = {"g": ("Google", "https://www.google.com/search?q="), "ddg": ("DuckDuckGo", "https://duckduckgo.com/?q="),
@@ -74,15 +75,28 @@ def start_menus() -> list[str]:
 
 class Programs(Plugin):
     name, title = "programs", "Programs"
-    about = "Start menu programs, ranked by how often you pick them"
+    about = "Start menu programs, ranked by how often you pick them (Linux: the menu's programs)"
     REFRESH = 600
 
-    def __init__(self, folders: list[str] | None = None):
-        self.folders = folders if folders is not None else start_menus()
+    def __init__(self, folders: list[str] | None = None, linux: bool | None = None):
+        # Linux reads menu entries; given Start menu folders (the made-up PC of the tests and --selftest), Windows' way
+        self.linux = (actions.LINUX and folders is None) if linux is None else linux
+        self.folders = folders if folders is not None else (desktop.folders() if self.linux else start_menus())
         self.items: list[tuple[str, str, str]] = []        # (name, shortcut path, target)
         self.loaded = 0.0
 
     def load(self):
+        if self.linux:                                     # freedesktop.org menu entries, as Plasma's menu lists them
+            items = []
+            for e in desktop.entries(self.folders):
+                if "uninstall" in e.name.casefold():
+                    continue
+                words = desktop.command(e)
+                target = (shutil.which(words[0]) or words[0]) if words else ""
+                items.append((e.name, e.path, target))
+            self.items = items
+            self.loaded = time.time()
+            return
         seen, items = set(), []
         for root in self.folders:
             for folder, _dirs, files in os.walk(root):
@@ -116,8 +130,9 @@ class Programs(Plugin):
                 s2 = score(text, os.path.splitext(os.path.basename(target))[0])
                 s = s2 - 15 if s2 is not None else None
             if s is not None:
+                action = {"type": "app", "path": path} if self.linux else {"type": "open", "path": path}
                 out.append(Result(name, f"Program  ·  {target or path}", "app", s + 5, self.name, f"program:{name}",
-                                  {"type": "open", "path": path}, target or path))
+                                  action, target or path))
         return out
 
 
@@ -154,7 +169,28 @@ def is_search(query: str, limit: int = 5, timeout: float = 0.6) -> list[dict] | 
 
 
 def recent_folder() -> str:
+    if sys.platform != "win32":                # freedesktop.org's recent files list (Plasma keeps it)
+        base = os.environ.get("XDG_DATA_HOME") or os.path.join(os.path.expanduser("~"), ".local", "share")
+        return os.path.join(base, "recently-used.xbel")
     return os.path.join(os.environ.get("APPDATA", ""), "Microsoft", "Windows", "Recent")
+
+
+def recent_xbel(path: str) -> list[str]:
+    """The files in a recently-used.xbel (newest first, ones that still exist)."""
+    import xml.etree.ElementTree as ET
+    from urllib.parse import unquote, urlparse
+    try:
+        root = ET.parse(path).getroot()
+    except (OSError, ET.ParseError):
+        return []
+    marks = [(b.get("modified") or b.get("visited") or "", b.get("href", "")) for b in root.iter("bookmark")]
+    out = []
+    for _when, href in sorted(marks, reverse=True):
+        if href.startswith("file://"):
+            f = unquote(urlparse(href).path)
+            if os.path.exists(f):
+                out.append(f)
+    return out
 
 
 def human(n: int) -> str:
@@ -188,6 +224,14 @@ class Files(Plugin):
                                   kind_icon(r["name"]), (s if s is not None else 30) - 8 - i * 0.1, self.name,
                                   f"file:{r['path']}", {"type": "open", "path": r["path"]}, r["path"]))
             return out
+        if self.recent.endswith(".xbel"):                # Linux
+            for target in recent_xbel(self.recent):
+                s = score(text, os.path.basename(target))
+                if s is not None:
+                    out.append(Result(os.path.basename(target), f"Recent  ·  {os.path.dirname(target)}",
+                                      kind_icon(target), s - 10, self.name, f"file:{target}",
+                                      {"type": "open", "path": target}, target))
+            return sorted(out, key=lambda r: -r.score)[:limit]
         try:
             names = os.listdir(self.recent)
         except OSError:
@@ -259,9 +303,10 @@ class Shell(Plugin):
     about = "Run a command (Ctrl+Enter: as administrator)"
 
     def query(self, text, keyword):
+        where = "a terminal" if actions.LINUX else "a console window"
         if not text.strip():
-            return [Result("Type a command", "It runs in a console window", "shell", 0, self.name)]
-        return [Result(f"> {text.strip()}", "Run in a console  ·  Ctrl+Enter as administrator", "shell", 90, self.name,
+            return [Result("Type a command", f"It runs in {where}", "shell", 0, self.name)]
+        return [Result(f"> {text.strip()}", f"Run in {where}  ·  Ctrl+Enter as administrator", "shell", 90, self.name,
                        "", {"type": "shell", "command": text.strip()})]
 
 
@@ -291,6 +336,11 @@ SYSTEM = [("Lock", "Lock the PC", "lock", False), ("Sleep", "Put the PC to sleep
           ("Sign out", "Sign out of Windows", "signout", True),
           ("Empty Recycle Bin", "Delete everything in the Recycle Bin", "emptybin", True),
           ("Settings", "Windows Settings", "settings", False)]
+SYSTEM_LINUX = [("Lock", "Lock the screen", "lock", False), ("Sleep", "Put the PC to sleep", "sleep", True),
+              ("Restart", "Restart the PC", "restart", True), ("Shut down", "Shut down the PC", "shutdown", True),
+              ("Sign out", "Sign out of Plasma", "signout", True),
+              ("Empty Trash", "Delete everything in the Trash", "emptybin", True),
+              ("Settings", "System Settings", "settings", False)]                 # the same, in Linux's words
 
 
 class System(Plugin):
@@ -299,7 +349,7 @@ class System(Plugin):
 
     def query(self, text, keyword):
         out = []
-        for title, sub, cmd, ask in SYSTEM:
+        for title, sub, cmd, ask in (SYSTEM_LINUX if actions.LINUX else SYSTEM):
             s = score(text, title)
             if s is not None and (len(text.strip()) >= 2 or s >= 90):
                 out.append(Result(title, sub, "system", s - 2, self.name, f"system:{cmd}",

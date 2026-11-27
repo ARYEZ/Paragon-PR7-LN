@@ -40,10 +40,45 @@ def option(key: str):
     return settings.get(key, d) or d
 
 
+AUTOSTART_NAME = "paragon-pr7-ln.desktop"
+
+
+def autostart_file() -> str:
+    """Linux: your own sign-in autostart entry (freedesktop.org's autostart folder; Plasma reads it)."""
+    base = os.environ.get("XDG_CONFIG_HOME") or os.path.join(os.path.expanduser("~"), ".config")
+    return os.path.join(base, "autostart", AUTOSTART_NAME)
+
+
+def system_autostart() -> bool:
+    """PR7-OS starts PR7-LN for everyone (/etc/xdg/autostart); your own entry of the same name overrides it."""
+    dirs = (os.environ.get("XDG_CONFIG_DIRS") or "/etc/xdg").split(":")
+    return any(os.path.exists(os.path.join(d, "autostart", AUTOSTART_NAME)) for d in dirs if d)
+
+
 def start_with_windows(on: bool | None = None) -> bool:
-    """Read (on=None) or set the HKCU Run entry that starts PR7-LN (quietly) when you sign in."""
+    """Read (on=None) or set what starts PR7-LN (quietly) when you sign in: the HKCU Run entry on Windows, an autostart
+    entry on Linux; off while PR7-OS starts it for everyone = your own entry with Hidden=true (PR7-Q's way)."""
     if sys.platform != "win32":
-        return False
+        path = autostart_file()
+        if on is None:
+            if os.path.exists(path):
+                with open(path, encoding="utf-8") as f:
+                    return "\nHidden=true" not in f.read()
+            return system_autostart()
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        if on:
+            import shlex
+            import shutil
+            command = shutil.which("pr7-ln") or f"{shlex.quote(sys.executable)} -m pr7ln"
+            with open(path, "w", encoding="utf-8") as f:
+                f.write("[Desktop Entry]\nType=Application\nName=Paragon PR7-LN\nComment=Launcher: Alt+Space\n"
+                        f"Exec={command} --tray\nIcon=paragon-pr7-ln\nX-GNOME-Autostart-enabled=true\n")
+        elif system_autostart():
+            with open(path, "w", encoding="utf-8") as f:
+                f.write("[Desktop Entry]\nType=Application\nName=Paragon PR7-LN\nHidden=true\n")
+        elif os.path.exists(path):
+            os.remove(path)
+        return on
     import winreg
     exe = f'"{sys.executable}" --tray' if getattr(sys, "frozen", False) else \
         f'"{sys.executable.replace("python.exe", "pythonw.exe")}" -m pr7ln --tray'
@@ -189,11 +224,13 @@ class SettingsDialog(QDialog):
         row.addWidget(lab)
         self.key = QKeySequenceEdit(QKeySequence(option("key_show")))
         self.key.setFixedWidth(200)
+        if not hotkeys.available():                  # Linux: a Plasma shortcut (System Settings changes it)
+            self.key.setEnabled(False)
+            self.key.setToolTip(hotkeys.LINUX_NOTE)
         row.addWidget(self.key)
         row.addSpacing(20)
-        self.startup = QCheckBox("Start with Windows")
+        self.startup = QCheckBox("Start with Windows" if sys.platform == "win32" else "Start when I sign in")
         self.startup.setChecked(start_with_windows())
-        self.startup.setEnabled(sys.platform == "win32")
         self.blur = QCheckBox("Hide when it loses focus")
         self.blur.setChecked(option("hide_on_blur"))
         self.keep = QCheckBox("Remember the last query")
@@ -314,7 +351,7 @@ class SettingsDialog(QDialog):
         chosen = self.finish_group.checkedButton()
         if chosen is not None and chosen.property("finish") != theme.FINISH:
             self.app.set_finish(chosen.property("finish"))
-        if sys.platform == "win32" and self.startup.isChecked() != start_with_windows():
+        if self.startup.isChecked() != start_with_windows():
             start_with_windows(self.startup.isChecked())
         from . import update_ui
         update_ui.set_auto(self.updates.isChecked())

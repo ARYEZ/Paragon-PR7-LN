@@ -61,3 +61,11 @@ def tray(qapp, pc, tmp_path):
     la.hide()
     t.hotkeys.unregister()
     qapp.clipboard().clear()
+
+
+@pytest.fixture(autouse=True)
+def windows_rules(monkeypatch):
+    """The made-up PC is a Windows one: the shared tests check Windows' plans and words on any system
+    (tests/test_linux.py switches this back on for Linux's)."""
+    from pr7ln import actions
+    monkeypatch.setattr(actions, "LINUX", False)

@@ -20,6 +20,8 @@ NAMED_KEYS.update({"`": 0xC0, "~": 0xC0, "-": 0xBD, "=": 0xBB, "[": 0xDB, "]": 0
                    "'": 0xDE, ",": 0xBC, ".": 0xBE, "/": 0xBF, "space": 0x20})
 
 DEFAULT_KEYS = {"show": "Alt+Space"}
+LINUX_NOTE = ("Alt+Space is a Plasma shortcut on PR7-OS: change it in System Settings > Keyboard > Shortcuts > "
+              "PR7-LN Launcher.")
 
 
 def parse(text: str) -> tuple[int, int] | None:
@@ -76,7 +78,7 @@ class Hotkeys:
         self.unregister()
         problems = {}
         if not available():
-            return {name: "Keys that work from any program are a Windows feature." for name in keys}
+            return {name: LINUX_NOTE for name in keys}
         import ctypes
         user32 = ctypes.windll.user32
         if self._filter is None:

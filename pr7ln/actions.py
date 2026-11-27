@@ -10,15 +10,36 @@ nothing is started, locked or shut down by a test.
     shell     cmd.exe /k COMMAND (a console that stays open); admin: the same through "runas"
     family    a family app, with the file when there is one
     system    lock / sleep / restart / shutdown / signout / emptybin / settings
+    app       Linux: a menu entry's program (its Exec line; Terminal=true ones in a terminal)
+
+On Linux (PR7-OS) the same actions plan Linux's commands: xdg-open, a terminal for commands (x-terminal-emulator,
+Debian's name for the installed one), loginctl / systemctl / Plasma's logout, the Trash through kioclient.
 """
 
 from __future__ import annotations
 
 import os
+import shlex
 import subprocess
 import sys
 
-from . import family
+from . import desktop, family
+
+LINUX = sys.platform != "win32"
+TERMINAL = "x-terminal-emulator"
+LINUX_SYSTEM = {"lock": {"kind": "start", "args": ["loginctl", "lock-session"]},
+                "sleep": {"kind": "start", "args": ["systemctl", "suspend"]},
+                "restart": {"kind": "start", "args": ["systemctl", "reboot"]},
+                "shutdown": {"kind": "start", "args": ["systemctl", "poweroff"]},
+                "signout": {"kind": "start", "args": ["qdbus6", "org.kde.Shutdown", "/Shutdown", "logout"]},
+                "emptybin": {"kind": "start", "args": ["kioclient", "empty", "trash:/"]},
+                "settings": {"kind": "start", "args": ["systemsettings"]}}
+
+
+def in_terminal(command: str, admin: bool = False) -> list[str]:
+    """A command in a terminal that stays open afterwards (Windows' cmd /k); admin: through sudo."""
+    inner = f"sudo sh -c {shlex.quote(command)}" if admin else command
+    return [TERMINAL, "-e", "sh", "-c", f'{inner}; exec "${{SHELL:-/bin/bash}}"']
 
 SYSTEM_PLANS = {"lock": {"kind": "call", "name": "lock"}, "sleep": {"kind": "call", "name": "sleep"},
                 "restart": {"kind": "start", "args": ["shutdown.exe", "/r", "/t", "0"]},
@@ -28,9 +49,14 @@ SYSTEM_PLANS = {"lock": {"kind": "call", "name": "lock"}, "sleep": {"kind": "cal
                 "settings": {"kind": "shell", "file": "ms-settings:", "verb": "open"}}
 
 
-def plan(action: dict, admin: bool = False, find=None) -> dict | None:
+def plan(action: dict, admin: bool = False, find=None, linux: bool | None = None) -> dict | None:
     find = find or family.find
+    linux = LINUX if linux is None else linux
     t = action.get("type")
+    if linux:
+        p = _linux_plan(action, admin, find)
+        if p is not False:
+            return p
     if t == "open":
         if admin:
             return {"kind": "shell", "file": action["path"], "verb": "runas"}
@@ -60,6 +86,41 @@ def plan(action: dict, admin: bool = False, find=None) -> dict | None:
     if t == "system":
         return dict(SYSTEM_PLANS[action["command"]])
     return None
+
+
+def _linux_plan(action: dict, admin: bool, find):
+    """Linux's plan for an action, or False to use the shared one (url, copy, family)."""
+    t = action.get("type")
+    if t == "app":
+        try:
+            with open(action["path"], encoding="utf-8", errors="replace") as fh:
+                keys = desktop.parse(fh.read())
+        except OSError:
+            return None
+        e = desktop.Entry("", action["path"], keys.get("Name", ""), exec=keys.get("Exec", ""),
+                          icon=keys.get("Icon", ""), terminal=keys.get("Terminal", "").lower() == "true")
+        words = desktop.command(e)
+        if not words:
+            return None
+        if e.terminal or admin:
+            return {"kind": "start", "args": in_terminal(shlex.join(words), admin)}
+        return {"kind": "start", "args": words}
+    if t in ("open", "admin"):
+        if admin or t == "admin":                    # Linux has no "run as administrator" for a file: a terminal
+            return {"kind": "start", "args": in_terminal(shlex.quote(action["path"]), True)}
+        return {"kind": "start", "args": ["xdg-open", action["path"]]}
+    if t == "folder":
+        path = action["path"]
+        folder = path if os.path.isdir(path) else os.path.dirname(path)
+        exe = find("PR7-E")
+        return {"kind": "start", "args": [exe, folder] if exe else ["xdg-open", folder]}
+    if t == "url":
+        return {"kind": "start", "args": ["xdg-open", action["url"]]}
+    if t == "shell":
+        return {"kind": "start", "args": in_terminal(action["command"], admin)}
+    if t == "system":
+        return dict(LINUX_SYSTEM[action["command"]])
+    return False
 
 
 def run(p: dict) -> bool:

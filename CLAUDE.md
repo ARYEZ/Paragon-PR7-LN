@@ -15,6 +15,12 @@ Linux for tests. The owner writes Python; explain the why.
   Calculator, Web (`ENGINES`), Shell (`>`), Family (`pr7`, `family.find`), System (confirm on the undoable ones),
   Clipboard (PR7-CB's clips.db read only, `mode=ro`; PR7CB_DATA in tests; off by default). `file_actions(path, find)`:
   Shift+Enter's list, family apps by extension (`FAMILY`) only when installed.
+- **Linux (PR7-OS)**: `desktop.py` (no Qt) reads freedesktop.org menu entries (XDG dirs, id precedence, NoDisplay /
+  Hidden / OnlyShowIn / NotShowIn / TryExec) and turns Exec into arguments (`command`, field codes); `Programs` uses it
+  when it isn't given Start menu folders. `actions.LINUX` picks Linux plans (`_linux_plan`: app / xdg-open / PR7-E /
+  x-terminal-emulator ... / loginctl, systemctl, qdbus6 logout, kioclient) and `SYSTEM_LINUX` words; the shared tests and
+  the selftest's made-up PC run with it False (conftest `windows_rules`), tests/test_linux.py with it True. Recent =
+  recently-used.xbel. Alt+Space is PR7-OS's Plasma shortcut (`hotkeys.LINUX_NOTE`), start at sign-in an autostart entry.
 - `pr7ln/engine.py` (no Qt): `Engine.split` (a keyword first; `=` / `>` need no space), plugins with `default` answer
   without one, `History` (pick counts in <data>/history.json, boost 12*log2(1+n)), LIMIT rows, the web search last.
   A plugin that raises is skipped. <data> = %APPDATA%\Paragon\PR7-LN, **PR7LN_DATA** in tests.
